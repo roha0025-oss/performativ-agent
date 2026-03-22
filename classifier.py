@@ -1,6 +1,7 @@
 import anthropic
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -21,7 +22,14 @@ family offices, RIAs, asset managers, regulation (DORA, MiFID II, FiDA), complia
 reporting, portfolio analytics, AI in regulated financial workflows, enterprise data 
 integration, legacy modernization, custodian connectivity.
 
-You MUST respond with ONLY valid JSON in this exact format, nothing else:
+CRITICAL INSTRUCTIONS:
+- You MUST respond with ONLY a valid JSON object.
+- Do NOT include any text before or after the JSON.
+- Do NOT use markdown code fences or backticks.
+- Do NOT explain your reasoning outside the JSON.
+- Your entire response must be parseable by json.loads().
+
+Required JSON format:
 {
   "label": "GOOD_NEWS" or "BAD_NEWS" or "UNRELATED",
   "confidence": a number between 0.0 and 1.0,
@@ -39,6 +47,21 @@ def validate_url(url: str) -> tuple[bool, str]:
     if " " in url:
         return False, "URL contains spaces and is invalid"
     return True, ""
+
+def extract_json(text: str) -> str:
+    """
+    Try to extract a JSON object from text that may contain
+    extra prose or markdown around it.
+    """
+    # Strip markdown code fences
+    text = re.sub(r"```(?:json)?", "", text).strip()
+
+    # Try to find a JSON object using regex
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        return match.group(0)
+
+    return text
 
 def classify_article(url: str) -> dict:
     """
@@ -68,7 +91,7 @@ def classify_article(url: str) -> dict:
             messages=[
                 {
                     "role": "user",
-                    "content": f"Please fetch and classify this news article: {url}"
+                    "content": f"Fetch and classify this news article. Reply with ONLY the JSON object, nothing else: {url}"
                 }
             ]
         )
@@ -81,7 +104,7 @@ def classify_article(url: str) -> dict:
 
         result_text = result_text.strip()
 
-        # If no text found, Claude may still be in tool-use mode — handle it
+        # If no text found, Claude may still be in tool-use mode
         if not result_text:
             return {
                 "url": url,
@@ -93,10 +116,8 @@ def classify_article(url: str) -> dict:
                 "error": "Empty text response"
             }
 
-        # Strip markdown code fences if present
-        if result_text.startswith("```"):
-            lines = result_text.split("\n")
-            result_text = "\n".join(lines[1:-1])
+        # Try to extract JSON even if Claude added extra text
+        result_text = extract_json(result_text)
 
         classification = json.loads(result_text)
         confidence = classification["confidence"]
@@ -116,7 +137,7 @@ def classify_article(url: str) -> dict:
             "error": None
         }
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         return {
             "url": url,
             "label": "FETCH_FAILED",
@@ -124,7 +145,7 @@ def classify_article(url: str) -> dict:
             "reasoning": "Failed to parse classification response from the model.",
             "relevance_topics": [],
             "processed_at": datetime.now(timezone.utc).isoformat(),
-            "error": "JSON parse error"
+            "error": f"JSON parse error: {str(e)}"
         }
 
     except anthropic.APIConnectionError:
