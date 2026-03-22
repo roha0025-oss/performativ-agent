@@ -61,7 +61,7 @@ def classify_article(url: str) -> dict:
 
     try:
         response = client.messages.create(
-            model="claude-opus-4-5",
+            model="claude-sonnet-4-20250514",
             max_tokens=1024,
             system=SYSTEM_PROMPT,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
