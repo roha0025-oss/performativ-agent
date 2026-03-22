@@ -74,10 +74,22 @@ def classify_article(url: str) -> dict:
         )
 
         # Extract the text response from Claude's reply
-        result_text = ""
-        for block in response.content:
-            if block.type == "text":
-                result_text += block.text
+result_text = ""
+for block in response.content:
+    if hasattr(block, "type") and block.type == "text":
+        result_text += block.text
+
+# If no text found, Claude may still be in tool-use mode — handle it
+if not result_text.strip():
+    return {
+        "url": url,
+        "label": "FETCH_FAILED",
+        "confidence": 0.0,
+        "reasoning": "Model returned no text response (tool use only).",
+        "relevance_topics": [],
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+        "error": "Empty text response"
+    }
 
         result_text = result_text.strip()
 
